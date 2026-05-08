@@ -1,6 +1,39 @@
 """Dataset utilities for handling different dataset types and templates."""
 
+import os
 from typing import Type, Any
+
+
+_LOCAL_FILE_FORMATS = {
+    ".jsonl": "json",
+    ".json": "json",
+    ".csv": "csv",
+    ".parquet": "parquet",
+}
+
+
+def load_training_dataset(dataset_info):
+    """Load a dataset from a local file or the HuggingFace Hub.
+
+    Local files are detected by extension (.jsonl, .json, .csv, .parquet).
+    Relative paths are resolved from the current working directory.
+    Hub datasets honour dataset_info.subset and dataset_info.split as before.
+    """
+    from datasets import load_dataset
+
+    name = dataset_info.name
+    _, ext = os.path.splitext(name)
+
+    if ext in _LOCAL_FILE_FORMATS:
+        fmt = _LOCAL_FILE_FORMATS[ext]
+        path = name if os.path.isabs(name) else os.path.join(os.getcwd(), name)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Local dataset file not found: {path}")
+        return load_dataset(fmt, data_files=path, split="train")
+
+    if dataset_info.subset:
+        return load_dataset(name, dataset_info.subset, split=dataset_info.split)
+    return load_dataset(name, split=dataset_info.split)
 
 
 def is_math_dataset(dataset_name: str) -> bool:
