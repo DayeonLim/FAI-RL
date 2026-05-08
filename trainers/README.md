@@ -44,12 +44,21 @@ fai-rl-train --recipe recipes/training/dpo/llama3_3B_lora.yaml --num-gpus 8 --no
 All configuration files are located in `../recipes/training/` and include comprehensive inline documentation. Each config file is fully self-documenting with detailed comments explaining every parameter.
 
 **Available Config Templates:**
+
+HuggingFace Hub datasets:
 - **CPT (Continuous Pre-Training)**: `recipes/training/cpt/qwen3_4B_qlora.yaml`
 - **SFT (Supervised Fine-Tuning)**: `recipes/training/sft/llama3_3B_lora.yaml`
 - **DPO (Direct Preference Optimization)**: `recipes/training/dpo/llama3_3B_lora.yaml`
 - **PPO (Proximal Policy Optimization)**: `recipes/training/ppo/llama3_3B_lora.yaml`
 - **GRPO (Group Relative Policy Optimization)**: `recipes/training/grpo/llama3_3B_lora.yaml`
 - **GSPO (Group Sequence Policy Optimization)**: `recipes/training/gspo/llama3_3B_lora.yaml`
+
+Local file datasets:
+- **CPT**: `recipes/training/cpt/qwen3_4B_local_file.yaml`
+- **SFT**: `recipes/training/sft/llama3_3B_local_file.yaml`
+- **DPO**: `recipes/training/dpo/llama3_3B_local_file.yaml`
+- **GRPO**: `recipes/training/grpo/llama3_3B_local_file.yaml`
+- **GSPO**: `recipes/training/gspo/llama3_3B_local_file.yaml`
 
 Each config file contains four main sections:
 1. **Model Configuration** - Base model, quantization, and LoRA settings
@@ -63,7 +72,7 @@ Open any config file to see detailed inline documentation for all available para
 
 **Configuration Checklist:**
 Replace the following values for your specific use case:
-- `data.datasets.name` → your HuggingFace dataset(s) (e.g., "Anthropic/hh-rlhf" for DPO/PPO, "openai/gsm8k" for GRPO/GSPO, "nvidia/Aegis-AI-Content-Safety-Dataset-2.0" for SFT)
+- `data.datasets.name` → your HuggingFace dataset(s) (e.g., "Anthropic/hh-rlhf" for DPO/PPO, "openai/gsm8k" for GRPO/GSPO, "nvidia/Aegis-AI-Content-Safety-Dataset-2.0" for SFT) **or a local file path** (e.g., `data/train.jsonl`) — see [Local File Datasets](#local-file-datasets) below
 - `data.datasets.text_column` → column containing raw text (CPT only; default: `"text"`)
 - `data.datasets.prompt_column` / `answer_column` / `chosen_column` / `rejected_column` → adjust based on your dataset and algorithm
   - **CPT**: Use `text_column` (raw text, no chat template)
@@ -110,6 +119,48 @@ FAI-RL/
 └── logs/                     # Training logs (if generated)
     └── training_YYYYMMDD_HHMMSS.log
 ```
+
+## Local File Datasets
+
+All training algorithms can load datasets directly from local files. Set `data.datasets[n].name` to a file path — the extension selects the loader automatically.
+
+**Supported formats**
+
+| Extension | Format |
+|-----------|--------|
+| `.jsonl` | Newline-delimited JSON (recommended) |
+| `.json` | JSON array |
+| `.csv` | Comma-separated values |
+| `.parquet` | Apache Parquet |
+
+Relative paths are resolved from the directory where `fai-rl-train` is launched. Absolute paths are used as-is.
+
+**Expected JSONL schema by algorithm**
+
+| Algorithm | Required fields |
+|-----------|----------------|
+| **SFT** | `prompt`, `response` |
+| **CPT** | `text` |
+| **DPO** | `prompt`, `chosen`, `rejected` |
+| **GRPO** | `prompt`, `answer` |
+| **GSPO** | `prompt`, `answer` |
+
+**Example — SFT from a local JSONL file**
+
+```yaml
+data:
+  datasets:
+    - name: "data/train.jsonl"
+      prompt_column: "prompt"
+      dataset_columns: ["prompt", "response"]
+```
+
+```bash
+fai-rl-train --recipe recipes/training/sft/llama3_3B_local_file.yaml --num-gpus 1 \
+  data.datasets[0].name=data/my_train.jsonl
+```
+
+Multiple local files, or a mix of local files and Hub datasets, can be listed under `data.datasets` and will be concatenated before training.
 
 ## 💡 Best Practices
 
