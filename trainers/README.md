@@ -60,6 +60,13 @@ Local file datasets:
 - **GRPO**: `recipes/training/grpo/llama3_3B_local_file.yaml`
 - **GSPO**: `recipes/training/gspo/llama3_3B_local_file.yaml`
 
+S3 datasets:
+- **CPT**: `recipes/training/cpt/qwen3_4B_s3_file.yaml`
+- **SFT**: `recipes/training/sft/llama3_3B_s3_file.yaml`
+- **DPO**: `recipes/training/dpo/llama3_3B_s3_file.yaml`
+- **GRPO**: `recipes/training/grpo/llama3_3B_s3_file.yaml`
+- **GSPO**: `recipes/training/gspo/llama3_3B_s3_file.yaml`
+
 Each config file contains four main sections:
 1. **Model Configuration** - Base model, quantization, and LoRA settings
 2. **Data Configuration** - Dataset names, columns, and preprocessing
@@ -72,7 +79,7 @@ Open any config file to see detailed inline documentation for all available para
 
 **Configuration Checklist:**
 Replace the following values for your specific use case:
-- `data.datasets.name` → your HuggingFace dataset(s) (e.g., "Anthropic/hh-rlhf" for DPO/PPO, "openai/gsm8k" for GRPO/GSPO, "nvidia/Aegis-AI-Content-Safety-Dataset-2.0" for SFT) **or a local file path** (e.g., `data/train.jsonl`) — see [Local File Datasets](#local-file-datasets) below
+- `data.datasets.name` → your HuggingFace dataset(s) (e.g., "Anthropic/hh-rlhf" for DPO/PPO, "openai/gsm8k" for GRPO/GSPO, "nvidia/Aegis-AI-Content-Safety-Dataset-2.0" for SFT), **a local file path** (e.g., `data/train.jsonl`), or **an S3 URI** (e.g., `s3://bucket/datasets/train.jsonl`) — see [Local File Datasets](#local-file-datasets) and [S3 Datasets](#s3-datasets) below
 - `data.datasets.text_column` → column containing raw text (CPT only; default: `"text"`)
 - `data.datasets.prompt_column` / `answer_column` / `chosen_column` / `rejected_column` → adjust based on your dataset and algorithm
   - **CPT**: Use `text_column` (raw text, no chat template)
@@ -161,6 +168,40 @@ fai-rl-train --recipe recipes/training/sft/llama3_3B_local_file.yaml --num-gpus 
 ```
 
 Multiple local files, or a mix of local files and Hub datasets, can be listed under `data.datasets` and will be concatenated before training.
+
+## S3 Datasets
+
+All training algorithms can load datasets directly from S3 (or any S3-compatible store). Set `data.datasets[n].name` to an `s3://` URI — the file extension selects the loader automatically.
+
+AWS credentials are resolved from the standard boto3 chain: IAM role, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` environment variables, or `~/.aws/credentials`.
+
+**Supported formats**
+
+| Extension | Format |
+|-----------|--------|
+| `.jsonl` | Newline-delimited JSON (recommended) |
+| `.json` | JSON array |
+| `.csv` | Comma-separated values |
+| `.parquet` | Apache Parquet |
+
+**Example — SFT from an S3 JSONL file**
+
+```yaml
+data:
+  datasets:
+    - name: "s3://my-bucket/datasets/train.jsonl"
+      prompt_column: "prompt"
+      dataset_columns: ["prompt", "response"]
+      s3_region: null        # override AWS region if needed
+      s3_endpoint_url: null  # set for MinIO or other S3-compatible stores
+```
+
+```bash
+fai-rl-train --recipe recipes/training/sft/llama3_3B_s3_file.yaml --num-gpus 1 \
+  data.datasets[0].name=s3://my-bucket/datasets/my_train.jsonl
+```
+
+The file is downloaded to a temporary path at training startup, loaded into the HuggingFace Arrow cache, then deleted. Multiple S3 datasets, or a mix of S3, local, and Hub datasets, can be listed under `data.datasets` and will be concatenated before training.
 
 ## 💡 Best Practices
 

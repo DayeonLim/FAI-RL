@@ -12,9 +12,33 @@ _LOCAL_FILE_FORMATS = {
 }
 
 
-def load_training_dataset(dataset_info):
-    """Load a dataset from a local file or the HuggingFace Hub.
+def _load_from_s3(s3_uri: str, dataset_info):
+    """Download an S3 file to a temp path, load it, then clean up."""
+    from datasets import load_dataset
+    from utils.s3_utils import download_file_from_s3
 
+    _, ext = os.path.splitext(s3_uri)
+    if ext not in _LOCAL_FILE_FORMATS:
+        raise ValueError(
+            f"Unsupported S3 file extension {ext!r} in {s3_uri!r}. "
+            f"Supported: {list(_LOCAL_FILE_FORMATS)}"
+        )
+
+    region = getattr(dataset_info, "s3_region", None)
+    endpoint_url = getattr(dataset_info, "s3_endpoint_url", None)
+
+    tmp_path = download_file_from_s3(s3_uri, region=region, endpoint_url=endpoint_url)
+    try:
+        fmt = _LOCAL_FILE_FORMATS[ext]
+        return load_dataset(fmt, data_files=tmp_path, split="train")
+    finally:
+        os.unlink(tmp_path)
+
+
+def load_training_dataset(dataset_info):
+    """Load a dataset from S3, a local file, or the HuggingFace Hub.
+
+    S3 paths (s3://bucket/key) are downloaded to a temp file and then loaded.
     Local files are detected by extension (.jsonl, .json, .csv, .parquet).
     Relative paths are resolved from the current working directory.
     Hub datasets honour dataset_info.subset and dataset_info.split as before.
@@ -22,6 +46,10 @@ def load_training_dataset(dataset_info):
     from datasets import load_dataset
 
     name = dataset_info.name
+
+    if name.startswith("s3://"):
+        return _load_from_s3(name, dataset_info)
+
     _, ext = os.path.splitext(name)
 
     if ext in _LOCAL_FILE_FORMATS:
