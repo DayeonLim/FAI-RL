@@ -38,10 +38,7 @@ class DPOTrainer(BaseTrainer):
         model_kwargs = self.prepare_model_kwargs(quantization_config)
 
         # Load main model
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.config.model.base_model_name,
-            **model_kwargs
-        )
+        self.model = self.load_base_model_for_training(model_kwargs)
 
         # When using LoRA, skip loading a separate reference model.
         # TRL's DPOTrainer supports ref_model=None with LoRA — it computes

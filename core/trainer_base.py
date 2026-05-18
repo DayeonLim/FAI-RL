@@ -303,19 +303,68 @@ class BaseTrainer(ABC):
         
         return tokenizer
 
-    def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM, 
-                           quantization_config: Optional[BitsAndBytesConfig] = None):
+    def load_base_model_for_training(self, model_kwargs: Dict[str, Any]):
+        """Load the base model, transparently handling PEFT/LoRA checkpoints.
+
+        When base_model_name is a local directory containing adapter_config.json,
+        loads the original base model from adapter_config.base_model_name_or_path
+        (so the architecture exactly matches the saved adapter weights) and stores
+        the checkpoint path for apply_lora_to_model to resume from.
+
+        When base_model_name is a plain HuggingFace ID or a non-PEFT local dir,
+        behaves identically to AutoModelForCausalLM.from_pretrained.
+        """
+        from peft import PeftConfig
+
+        model_path = self.config.model.base_model_name
+        self._peft_adapter_path = None
+
+        adapter_config_path = os.path.join(model_path, "adapter_config.json")
+        if os.path.isdir(model_path) and os.path.exists(adapter_config_path):
+            peft_cfg = PeftConfig.from_pretrained(model_path)
+            base_model_path = peft_cfg.base_model_name_or_path
+            self.logger.info(
+                "Detected PEFT checkpoint; loading base model from %s", base_model_path
+            )
+            self._peft_adapter_path = model_path
+            # ignore_mismatched_sizes is not needed when loading the base model clean.
+            clean_kwargs = {k: v for k, v in model_kwargs.items() if k != "ignore_mismatched_sizes"}
+            return AutoModelForCausalLM.from_pretrained(base_model_path, **clean_kwargs)
+
+        return AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+
+    def apply_lora_to_model(self, model, task_type: TaskType = TaskType.CAUSAL_LM,
+                            quantization_config: Optional[BitsAndBytesConfig] = None):
         """Apply LoRA/QLoRA to a model.
-        
+
+        When a PEFT checkpoint was detected during load_base_model_for_training,
+        resumes from that adapter instead of creating a new one.
+
         Args:
             model: The model to apply LoRA to.
             task_type: The task type for LoRA (CAUSAL_LM or SEQ_CLS).
             quantization_config: Optional quantization configuration to determine if using QLoRA.
-            
+
         Returns:
             The model with LoRA applied.
         """
         if not getattr(self.config.model, 'use_lora', False):
+            return model
+
+        peft_adapter_path = getattr(self, '_peft_adapter_path', None)
+        if peft_adapter_path is not None:
+            from peft import PeftModel
+            self.logger.info("Loading existing PEFT adapter from %s", peft_adapter_path)
+            model = PeftModel.from_pretrained(model, peft_adapter_path, is_trainable=True)
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            total_params = sum(p.numel() for p in model.parameters())
+            self.logger.info(
+                "PEFT adapter loaded - Trainable params: %s / %s (%.2f%%)",
+                f"{trainable_params:,}", f"{total_params:,}",
+                100 * trainable_params / total_params,
+            )
+            if trainable_params == 0:
+                raise ValueError("No trainable parameters after loading PEFT adapter.")
             return model
 
         self.logger.info("Applying LoRA configuration...")
