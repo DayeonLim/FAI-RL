@@ -33,64 +33,80 @@ def _patch_weight_converter_init():
 _patch_weight_converter_init()
 
 
-# Workaround for PEFT 0.19.0 adding a restriction that only one LoRA adapter
-# per model can use target_parameters (the MoE-specific fused-layer mechanism).
-# TRL 1.2+ needs two adapters ("default" + "ref") for DPO reference logprob
-# computation. The restriction was not present in PEFT <= 0.17.0 and is
-# overly conservative — the underlying MoE layer code handles multiple adapters
-# correctly. We bypass it by temporarily hiding other adapters' target_parameters
-# while the new adapter's layers are being registered.
+# Workaround for two bugs in PEFT 0.19.0 when using TRL 1.2+ DPO with MoE LoRA:
+#
+# Fix 1 — single-adapter restriction: PEFT 0.19.0 raises ValueError if any two
+# LoRA adapters on the same model both use target_parameters. TRL 1.2 adds a
+# second adapter ("ref") for reference logprob computation, triggering this
+# check. We bypass it by temporarily hiding other adapters' target_parameters
+# during _create_and_replace (which is called for every regular LoRA layer).
+#
+# Fix 2 — silent skip of existing ParamWrapper: _inject_parameters iterates
+# named_modules to find parameters to wrap. After the first adapter creates
+# ParamWrapper at "...experts.0.gate_up_proj", the second adapter's iteration
+# finds ParamWrapper and calls named_parameters(recurse=False) on it, yielding
+# ("base_layer", param). The key built is "...experts.0.gate_up_proj.base_layer",
+# which doesn't match target_names={"gate_up_proj"} via endswith, so the second
+# adapter is silently never injected into any MoE layer. We post-process
+# inject_adapter to find ParamWrapper modules that are still missing the new
+# adapter and call update_layer directly.
 def _patch_peft_moe_multi_adapter():
     try:
         from peft.tuners.lora.model import LoraModel
         if getattr(LoraModel, "_fai_rl_multi_adapter_patched", False):
             return
+
         _orig_car = LoraModel._create_and_replace
 
         def _patched_car(self, lora_config, adapter_name, *args, **kwargs):
-            # Fix 1: temporarily hide other adapters' target_parameters to bypass
-            # PEFT 0.19.0's single-target_parameters-per-model restriction.
             saved = {}
             if getattr(lora_config, "target_parameters", None):
                 for k, conf in self.peft_config.items():
                     if k != adapter_name and getattr(conf, "target_parameters", None):
                         saved[k] = conf.target_parameters
                         conf.target_parameters = None
-
             try:
-                # Fix 2: prevent nested ParamWrapper when adding a second MoE adapter.
-                # _inject_parameters walks named_modules, finds an existing ParamWrapper,
-                # and calls _create_and_replace(target=base_layer, parent=ParamWrapper).
-                # Since base_layer is not a LoraLayer the original code creates a new
-                # ParamWrapper nested inside the existing one, breaking TRL's ref-adapter
-                # parameter path lookups (lora_A.ref lives in the inner wrapper instead
-                # of the outer one). Detect this case and call update_layer directly.
-                try:
-                    from peft.tuners.lora.layer import ParamWrapper
-                    parameter_name = kwargs.get("parameter_name", None)
-                    # positional args order: target, target_name, parent, current_key
-                    if len(args) >= 3 and parameter_name is not None:
-                        parent = args[2]
-                        current_key = args[3] if len(args) >= 4 else kwargs.get("current_key", "")
-                        if (isinstance(parent, ParamWrapper)
-                                and parameter_name == getattr(parent, "parameter_name", None)
-                                and adapter_name not in parent.lora_A):
-                            from peft.utils.other import get_pattern_key
-                            r_key = get_pattern_key(lora_config.rank_pattern.keys(), current_key)
-                            alpha_key = get_pattern_key(lora_config.alpha_pattern.keys(), current_key)
-                            r = lora_config.rank_pattern.get(r_key, lora_config.r)
-                            alpha = lora_config.alpha_pattern.get(alpha_key, lora_config.lora_alpha)
-                            parent.update_layer(adapter_name, r, lora_alpha=alpha, config=lora_config)
-                            return
-                except (ImportError, AttributeError):
-                    pass
-
                 return _orig_car(self, lora_config, adapter_name, *args, **kwargs)
             finally:
                 for k, v in saved.items():
                     self.peft_config[k].target_parameters = v
 
         LoraModel._create_and_replace = _patched_car
+
+        _orig_inject = LoraModel.inject_adapter
+
+        def _patched_inject(self, model, adapter_name, *args, **kwargs):
+            _orig_inject(self, model, adapter_name, *args, **kwargs)
+            try:
+                from peft.tuners.lora.layer import ParamWrapper
+                from peft.utils.other import get_pattern_key
+                peft_cfg = self.peft_config.get(adapter_name)
+                if peft_cfg is None or not getattr(peft_cfg, "target_parameters", None):
+                    return
+                target_params = set(peft_cfg.target_parameters)
+                is_active = adapter_name in (getattr(self, "active_adapters", None) or [])
+                for module_path, module in model.named_modules():
+                    if not isinstance(module, ParamWrapper):
+                        continue
+                    if adapter_name in module.lora_A:
+                        continue
+                    param_name = getattr(module, "parameter_name", None)
+                    if param_name is None:
+                        continue
+                    if not any(param_name == t or module_path.endswith(f".{t}") for t in target_params):
+                        continue
+                    r_key = get_pattern_key(peft_cfg.rank_pattern.keys(), module_path)
+                    alpha_key = get_pattern_key(peft_cfg.alpha_pattern.keys(), module_path)
+                    r = peft_cfg.rank_pattern.get(r_key, peft_cfg.r)
+                    alpha = peft_cfg.alpha_pattern.get(alpha_key, peft_cfg.lora_alpha)
+                    module.update_layer(adapter_name, r, lora_alpha=alpha, config=peft_cfg)
+                    if not is_active:
+                        module.lora_A[adapter_name].requires_grad_(False)
+                        module.lora_B[adapter_name].requires_grad_(False)
+            except (ImportError, AttributeError):
+                pass
+
+        LoraModel.inject_adapter = _patched_inject
         LoraModel._fai_rl_multi_adapter_patched = True
     except (ImportError, AttributeError):
         pass
