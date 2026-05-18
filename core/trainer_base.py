@@ -5,6 +5,33 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
+# Workaround for a bug in transformers where build_peft_weight_mapping passes
+# distributed_operation/quantization_operation as constructor kwargs to
+# WeightConverter, but WeightConverter.__init__ only accepts source_patterns,
+# target_patterns, and operations. This is triggered when loading a PEFT
+# checkpoint for a MoE model (e.g. Qwen3-30B-A3B).
+def _patch_weight_converter_init():
+    try:
+        from transformers.core_model_loading import WeightConverter
+        if getattr(WeightConverter, "_fai_rl_patched", False):
+            return
+        _orig_init = WeightConverter.__init__
+
+        def _patched_init(self, source_patterns, target_patterns, operations, **kwargs):
+            _orig_init(self, source_patterns, target_patterns, operations)
+            for k, v in kwargs.items():
+                try:
+                    setattr(self, k, v)
+                except (AttributeError, TypeError):
+                    pass
+
+        WeightConverter.__init__ = _patched_init
+        WeightConverter._fai_rl_patched = True
+    except (ImportError, AttributeError):
+        pass
+
+_patch_weight_converter_init()
+
 if TYPE_CHECKING:
     from transformers import BitsAndBytesConfig
 import wandb
