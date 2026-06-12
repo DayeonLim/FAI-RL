@@ -306,7 +306,18 @@ class InferenceConfig:
     dataset_columns: List[str] = field(default_factory=lambda: ["persona", "prompt"])
     response_column: str = "response"
     checkpoint_column: str = "checkpoint"  # Column name for checkpoint identifier in multi-checkpoint inference
-    
+
+    # Multimodal (VLM) inference. Setting image_column enables VLM mode: it names
+    # the dataset column holding an image URL / local path (or a list of them) for
+    # each row. The image(s) are fetched into PIL and fed to the processor
+    # alongside the templated text prompt. The fetch knobs mirror DataConfig's.
+    # When image_column is unset, inference runs text-only exactly as before.
+    image_column: Optional[str] = None
+    image_cache_dir: Optional[str] = None
+    image_fetch_timeout: int = 10
+    image_fetch_retries: int = 3
+    max_image_pixels: Optional[int] = None
+
     # S3 connection settings (used when model_paths entries start with s3://)
     s3_region: Optional[str] = None
     s3_endpoint_url: Optional[str] = None
