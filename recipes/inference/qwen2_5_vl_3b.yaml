@@ -33,9 +33,12 @@ inference:
 
   # The prompt template is filled per row from dataset_columns and becomes the
   # user text accompanying the image. It MUST contain at least one {placeholder}.
+  # Mirrors the sft_vlm training system_prompt; the training "Response: {response}"
+  # line becomes a bare "Response:" cue here ({response} is what the model generates).
   system_prompt: |
-    You are a helpful multimodal assistant. Answer based on the image.
-    {question}
+    You are a helpful multimodal assistant. Answer the user's question based on the image.
+    Question: {question}
+    Response:
 
   # Generation parameters. Greedy decoding for reproducible captions.
   temperature: 1.0
