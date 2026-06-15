@@ -2,7 +2,7 @@
 # loads its dataset file from S3.
 #
 # Identical to qwen3_vl_30b_a3b_lora.yaml except the dataset is read from an
-# s3:// URI instead of a local .jsonl. The file is downloaded to a temp path at
+# s3:// URI instead of a local .csv. The file is downloaded to a temp path at
 # startup, loaded into the HuggingFace Arrow cache, then deleted. Image values
 # inside each row are still HTTP(S) URLs / local paths fetched at load time.
 #
@@ -47,7 +47,7 @@ data:
     # Expected JSONL schema: {"image_url": "...", "question": "...", "response": "..."}
     # (the same schema as recipes/training/sft_vlm/example_data.csv), or a
     # messages_column already in conversational format.
-    - name: "s3://your-bucket/datasets/vlm_train.jsonl"  # S3 URI to the dataset file (required)
+    - name: "s3://your-bucket/datasets/vlm_train.csv"  # S3 URI to the dataset file (required)
       image_column: "image_url"
       question_column: "question"
       response_column: "response"
