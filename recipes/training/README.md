@@ -113,10 +113,11 @@ Column names are configurable — use `text_column`, `prompt_column`, `answer_co
 
 ### Multimodal datasets (SFT_VLM)
 
-The `sft_vlm` algorithm trains vision-language models on image + text. Each dataset row needs an image column plus a prompt/response pair:
+The `sft_vlm` algorithm trains vision-language models on image + text. Each dataset row needs an image column plus a prompt/response pair. The shipped example is a CSV (any of `.csv` / `.jsonl` / `.json` / `.parquet`, HF Hub, or S3 works):
 
-```jsonl
-{"image_url": "https://example.com/cat.jpg", "question": "What is in this image?", "response": "A cat sitting on a couch."}
+```csv
+image_url,question,response
+https://example.com/cat.jpg,What is in this image?,A cat sitting on a couch.
 ```
 
 Configure the columns in the dataset entry, and the image-fetch behavior under `data`:
@@ -124,8 +125,7 @@ Configure the columns in the dataset entry, and the image-fetch behavior under `
 ```yaml
 data:
   datasets:
-    - name: "recipes/training/sft_vlm/example_data.jsonl"   # HF Hub / local / S3
-      split: "train"
+    - name: "recipes/training/sft_vlm/example_data.csv"   # HF Hub / local / S3
       image_column: "image_url"      # holds an HTTP(S) URL, a local path, or a list of them (multi-image)
       question_column: "question"
       response_column: "response"
@@ -146,7 +146,7 @@ data:
 Notes:
 - `system_prompt` is a `str.format()` template supporting `{question}` and `{response}` (the configured question/response columns), mirroring the text-SFT templating above. Unknown placeholders fall back to the literal text.
 - Images are fetched from their URLs at startup; rows whose images can't be fetched/decoded are dropped (with a logged count).
-- A small example dataset of public image URLs ships at `recipes/training/sft_vlm/example_data.jsonl`. Any HF/local/S3 dataset with an image-URL column works — just point `name` at it.
+- A small example dataset of public image URLs ships at `recipes/training/sft_vlm/example_data.csv`. Any HF/local/S3 dataset with an image-URL column works — just point `name` at it.
 - `data.max_length` is forced to `None` internally for VLMs so image placeholder tokens are never truncated.
 - **Network:** the training environment must be able to reach the image hosts **and** the HuggingFace Hub (for the model). If image hosts are blocked, pre-download images and use local paths in `image_column`.
 

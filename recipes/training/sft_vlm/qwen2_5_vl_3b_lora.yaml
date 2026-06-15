@@ -25,7 +25,7 @@ model:
 
 data:
   datasets:
-    - name: "recipes/training/sft_vlm/example_data.jsonl"
+    - name: "recipes/training/sft_vlm/example_data.csv"
       image_column: "image_url"
       question_column: "question"
       response_column: "response"
