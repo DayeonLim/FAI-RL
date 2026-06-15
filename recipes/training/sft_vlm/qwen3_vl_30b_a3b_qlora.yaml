@@ -74,14 +74,22 @@ training:
   dataloader_drop_last: true
 
 wandb:
-  enabled: false
-  project: "your-project"
-  name: "Qwen3-VL-30B-A3B-SFT-QLoRA"
-  tags: ["sft_vlm", "qwen3-vl", "30B-A3B", "QLoRA", "multimodal"]
+  enabled: false                                          # Enable W&B logging
+  project: "your-project"                                 # W&B project name
+  entity: "your-wandb-entity"                             # W&B username or team name
+  name: "Qwen3-VL-30B-A3B-SFT-QLoRA"                      # Experiment name in W&B
+  tags: ["SFT", "sft_vlm", "qwen3-vl", "30B-A3B", "QLoRA", "multimodal"]   # Tags for organizing experiments
+  api_key: null                                           # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
+  base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
 
+# S3 Checkpoint Upload
+# Automatically uploads checkpoints and the final model to S3
 s3:
-  enabled: false
-  bucket: "your-s3-bucket"
-  prefix: "checkpoints/qwen3-vl-30b-a3b-sft-qlora-v1"
-  upload_checkpoints: true
-  upload_final_model: true
+  enabled: false                                         # Enable S3 checkpoint upload
+  bucket: "your-s3-bucket"                               # S3 bucket name
+  prefix: "checkpoints/qwen3-vl-30b-a3b-sft-qlora-v1"    # S3 key prefix (folder path inside bucket)
+  region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
+  endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
+  upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)
+  upload_final_model: true                               # Upload the final model at end of training
+  delete_local_after_upload: false                       # Delete local checkpoint files after successful upload
