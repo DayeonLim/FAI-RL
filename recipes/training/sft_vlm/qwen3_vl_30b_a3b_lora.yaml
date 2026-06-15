@@ -40,7 +40,6 @@ data:
     # the schema is image_column (URL/path) + question/response columns, or a
     # messages_column already in conversational format.
     - name: "recipes/training/sft_vlm/example_data.jsonl"
-      split: "train"
       image_column: "image_url"
       question_column: "question"
       response_column: "response"

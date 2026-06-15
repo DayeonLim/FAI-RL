@@ -26,7 +26,6 @@ model:
 data:
   datasets:
     - name: "recipes/training/sft_vlm/example_data.jsonl"
-      split: "train"
       image_column: "image_url"
       question_column: "question"
       response_column: "response"
