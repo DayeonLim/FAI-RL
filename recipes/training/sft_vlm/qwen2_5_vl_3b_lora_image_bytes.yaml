@@ -1,8 +1,9 @@
-# Small multimodal (image + text) SFT recipe for quick end-to-end validation.
+# Multimodal (image + text) SFT recipe that reads images from local binary files.
 #
-# Qwen2.5-VL-3B is small enough to validate the full sft_vlm pipeline (image URL
-# fetch -> processor -> collator -> loss -> checkpoint) on a single modest GPU or
-# Apple Silicon (MPS) before scaling up to Qwen3-VL-30B-A3B.
+# Identical to qwen2_5_vl_3b_lora.yaml except each row's image is a path to a file
+# under recipes/training/sft_vlm/image_bytes/ that holds the image's bytes in the
+# escaped-bytes text form (e.g. `\x89PNG\r\n...`). fetch_image() detects that form
+# and decodes it transparently, so no network/URL fetch happens at train time.
 model:
   base_model_name: "Qwen/Qwen2.5-VL-3B-Instruct"
   torch_dtype: "bfloat16"
@@ -25,22 +26,17 @@ model:
 
 data:
   datasets:
-    # image_column values may be HTTP(S) URLs, local paths, or s3:// URIs
-    # (e.g. s3://your-bucket/images/cat.png). s3:// images use the
-    # image_s3_region / image_s3_endpoint_url settings below.
-    - name: "recipes/training/sft_vlm/example_data.csv"
+    # image_url points at a local binary file (escaped-bytes text form) under
+    # image_bytes/. Paths resolve relative to the repo root (the run's CWD).
+    - name: "recipes/training/sft_vlm/example_data_bytes.csv"
       image_column: "image_url"
       question_column: "question"
       response_column: "response"
 
-  image_cache_dir: "data/vlm_image_cache"
-  image_fetch_timeout: 15
-  image_fetch_retries: 3
+  # Local files are decoded in place -- no fetch -- so image_cache_dir /
+  # image_fetch_* / image_s3_* don't apply here. Only max_image_pixels still
+  # runs (post-decode) to bound the vision-token count.
   max_image_pixels: 262144         # ~0.25MP keeps the smoke test light
-  # S3 overrides applied when an image value is an s3:// URI. When unset, boto3
-  # uses its default credential/region resolution chain.
-  image_s3_region: null
-  image_s3_endpoint_url: null
 
   # system_prompt is a .format() template; {question} and {response} are filled per row
   # from question_column / response_column. {response} is the target answer -- include it
@@ -52,7 +48,7 @@ data:
 
 training:
   algorithm: "sft_vlm"
-  output_dir: "models/qwen2.5-vl-3b-sft-lora-smoke"
+  output_dir: "models/qwen2.5-vl-3b-sft-lora-image-bytes-smoke"
 
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 2
@@ -77,8 +73,8 @@ wandb:
   enabled: false                                          # Enable W&B logging
   project: "your-project"                                 # W&B project name
   entity: "your-wandb-entity"                             # W&B username or team name
-  name: "Qwen2.5-VL-3B-Inst-LoRA-SFT"                     # Experiment name in W&B
-  tags: ["SFT", "sft_vlm", "qwen2.5-vl", "3B", "LoRA"]    # Tags for organizing experiments
+  name: "Qwen2.5-VL-3B-Inst-LoRA-SFT-image-bytes"         # Experiment name in W&B
+  tags: ["SFT", "sft_vlm", "qwen2.5-vl", "3B", "LoRA", "image-bytes"]   # Tags for organizing experiments
   api_key: null                                           # W&B API key (null = use WANDB_API_KEY env var or prior `wandb login`)
   base_url: "https://api.wandb.ai"                        # W&B base URL (null = use WANDB_BASE_URL env var)
 
@@ -87,7 +83,7 @@ wandb:
 s3:
   enabled: false                                         # Enable S3 checkpoint upload
   bucket: "your-s3-bucket"                               # S3 bucket name
-  prefix: "checkpoints/qwen2.5-vl-3b-sft-lora-smoke"     # S3 key prefix (folder path inside bucket)
+  prefix: "checkpoints/qwen2.5-vl-3b-sft-lora-image-bytes-smoke"  # S3 key prefix (folder path inside bucket)
   region: null                                           # AWS region (null = use AWS_DEFAULT_REGION env var or boto3 default)
   endpoint_url: null                                     # Custom S3-compatible endpoint (e.g. MinIO). null = AWS S3
   upload_checkpoints: true                               # Upload intermediate checkpoints (at every save_steps)

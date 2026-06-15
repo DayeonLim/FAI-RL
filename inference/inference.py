@@ -489,6 +489,8 @@ def fetch_example_images(config, example):
             cache_dir=getattr(config, "image_cache_dir", None),
             timeout=getattr(config, "image_fetch_timeout", 10),
             retries=getattr(config, "image_fetch_retries", 3),
+            s3_region=getattr(config, "image_s3_region", None),
+            s3_endpoint_url=getattr(config, "image_s3_endpoint_url", None),
         )
         images.append(_maybe_downscale_image(img, getattr(config, "max_image_pixels", None)))
     return images

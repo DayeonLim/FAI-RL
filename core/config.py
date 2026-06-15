@@ -124,6 +124,12 @@ class DataConfig:
     # pixels (preserving aspect ratio). Bounds the number of vision tokens /
     # sequence length so high-resolution images don't blow up memory.
     max_image_pixels: Optional[int] = None
+    # S3 connection overrides used when an image value is an s3:// URI (e.g.
+    # PNGs stored in a bucket). Independent of each dataset's s3_region /
+    # s3_endpoint_url (which govern the dataset file). When unset, boto3 uses
+    # its default credential/region resolution chain.
+    image_s3_region: Optional[str] = None
+    image_s3_endpoint_url: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -157,6 +163,8 @@ class DataConfig:
             "image_fetch_timeout": self.image_fetch_timeout,
             "image_fetch_retries": self.image_fetch_retries,
             "max_image_pixels": self.max_image_pixels,
+            "image_s3_region": self.image_s3_region,
+            "image_s3_endpoint_url": self.image_s3_endpoint_url,
         }
 
 
@@ -317,6 +325,10 @@ class InferenceConfig:
     image_fetch_timeout: int = 10
     image_fetch_retries: int = 3
     max_image_pixels: Optional[int] = None
+    # S3 overrides for image values that are s3:// URIs (e.g. PNGs in a bucket).
+    # When unset, boto3 uses its default credential/region resolution chain.
+    image_s3_region: Optional[str] = None
+    image_s3_endpoint_url: Optional[str] = None
 
     # S3 connection settings (used when model_paths entries start with s3://)
     s3_region: Optional[str] = None

@@ -145,9 +145,18 @@ class SFTVLMTrainer(BaseTrainer):
         timeout = self.config.data.image_fetch_timeout
         retries = self.config.data.image_fetch_retries
         max_pixels = self.config.data.max_image_pixels
+        s3_region = self.config.data.image_s3_region
+        s3_endpoint_url = self.config.data.image_s3_endpoint_url
         images = []
         for s in sources:
-            img = fetch_image(s, cache_dir=cache_dir, timeout=timeout, retries=retries)
+            img = fetch_image(
+                s,
+                cache_dir=cache_dir,
+                timeout=timeout,
+                retries=retries,
+                s3_region=s3_region,
+                s3_endpoint_url=s3_endpoint_url,
+            )
             images.append(self._maybe_downscale(img, max_pixels))
         return images
 

@@ -30,6 +30,25 @@ def _open_rgb(data_or_path: Any):
     return img.convert("RGB")
 
 
+def _read_local_image_bytes(path: str) -> bytes:
+    """Read a local image file's bytes, transparently decoding the escaped-bytes
+    text form.
+
+    Some datasets store an image as the *escaped* representation of its bytes
+    (e.g. a file whose content is the literal text ``\\x89PNG\\r\\n...\\xaeB`\\x82``
+    rather than the raw PNG bytes). We detect that form by its leading ``\\x``
+    (bytes ``0x5C 0x78``) -- no real raster format begins with the ASCII
+    characters ``\\x`` -- and reverse the escape back to the original bytes.
+    Normal binary image files are returned unchanged.
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:2] == b"\\x":
+        # text like b"\\x89PNG..." -> original bytes b"\x89PNG..."
+        return data.decode("unicode_escape").encode("latin-1")
+    return data
+
+
 def _fetch_url(url: str, timeout: int, retries: int) -> bytes:
     """Download a URL with bounded retries and exponential-ish backoff."""
     import requests
@@ -47,16 +66,29 @@ def _fetch_url(url: str, timeout: int, retries: int) -> bytes:
     raise RuntimeError(f"Failed to fetch image from {url!r} after {retries} attempts: {last_err}")
 
 
-def fetch_image(src: Any, *, cache_dir: Optional[str] = None, timeout: int = 10, retries: int = 3):
+def fetch_image(
+    src: Any,
+    *,
+    cache_dir: Optional[str] = None,
+    timeout: int = 10,
+    retries: int = 3,
+    s3_region: Optional[str] = None,
+    s3_endpoint_url: Optional[str] = None,
+):
     """Resolve an image source into an RGB :class:`PIL.Image.Image`.
 
     Accepts, in order of preference:
       * an http(s) URL string  -> downloaded (optionally disk-cached) and decoded
-      * a local file path string -> opened from disk
+      * an ``s3://`` URI string -> downloaded from S3 (optionally disk-cached)
+      * a local file path string -> opened from disk (raw image bytes, or the
+        escaped-bytes text form ``\\x89PNG...`` which is un-escaped first)
       * raw ``bytes``/``bytearray`` -> decoded in-memory
       * an existing ``PIL.Image.Image`` -> returned as RGB (passthrough)
       * a dict with an ``"url"``/``"path"``/``"bytes"``/``"image"`` key (the shape
         some HF datasets use) -> dispatched on the present key
+
+    ``s3_region`` / ``s3_endpoint_url`` are only consulted for ``s3://`` sources;
+    when unset, boto3 uses its default credential/region resolution chain.
 
     Raises:
         RuntimeError / OSError: if the image cannot be fetched or decoded. Callers
@@ -77,12 +109,28 @@ def fetch_image(src: Any, *, cache_dir: Optional[str] = None, timeout: int = 10,
         for key in ("image", "bytes", "path", "url"):
             if src.get(key) is not None:
                 return fetch_image(
-                    src[key], cache_dir=cache_dir, timeout=timeout, retries=retries
+                    src[key],
+                    cache_dir=cache_dir,
+                    timeout=timeout,
+                    retries=retries,
+                    s3_region=s3_region,
+                    s3_endpoint_url=s3_endpoint_url,
                 )
         raise ValueError(f"Unsupported image dict with keys {list(src.keys())}")
 
     if isinstance(src, str):
-        if src.startswith("http://") or src.startswith("https://"):
+        is_http = src.startswith("http://") or src.startswith("https://")
+        is_s3 = src.startswith("s3://")
+        if is_http or is_s3:
+            # Both remote schemes share the same disk-cache + decode path; only
+            # the fetch step differs (HTTP GET vs. S3 GetObject).
+            def _download() -> bytes:
+                if is_s3:
+                    from utils.s3_utils import download_s3_bytes
+
+                    return download_s3_bytes(src, region=s3_region, endpoint_url=s3_endpoint_url)
+                return _fetch_url(src, timeout, retries)
+
             # Serve from cache when available.
             if cache_dir:
                 os.makedirs(cache_dir, exist_ok=True)
@@ -93,15 +141,16 @@ def fetch_image(src: Any, *, cache_dir: Optional[str] = None, timeout: int = 10,
                     except Exception:
                         # Corrupt cache entry; re-download below.
                         pass
-                content = _fetch_url(src, timeout, retries)
+                content = _download()
                 with open(path, "wb") as f:
                     f.write(content)
                 return _open_rgb(content)
-            return _open_rgb(_fetch_url(src, timeout, retries))
+            return _open_rgb(_download())
 
-        # Treat as a local filesystem path.
+        # Treat as a local filesystem path. Reads through _read_local_image_bytes
+        # so files holding the escaped-bytes text form decode transparently.
         if not os.path.exists(src):
             raise FileNotFoundError(f"Image file not found: {src}")
-        return _open_rgb(src)
+        return _open_rgb(_read_local_image_bytes(src))
 
     raise TypeError(f"Unsupported image source type: {type(src)!r}")

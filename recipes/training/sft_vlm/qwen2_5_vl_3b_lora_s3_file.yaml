@@ -2,8 +2,10 @@
 #
 # Identical to qwen2_5_vl_3b_lora.yaml except the dataset is read from an
 # s3:// URI instead of a local .csv. The file is downloaded to a temp path at
-# startup, loaded into the HuggingFace Arrow cache, then deleted. Image values
-# inside each row are still HTTP(S) URLs / local paths fetched at load time.
+# startup, loaded into the HuggingFace Arrow cache, then deleted. Each row's
+# image value may be an HTTP(S) URL, a local path, or an s3:// URI (e.g. a PNG
+# stored in a bucket) -- s3:// images are fetched via boto3 using the
+# image_s3_region / image_s3_endpoint_url settings below.
 model:
   base_model_name: "Qwen/Qwen2.5-VL-3B-Instruct"
   torch_dtype: "bfloat16"
@@ -28,19 +30,24 @@ data:
   datasets:
     # S3 dataset loading: set name to an s3:// URI ending in .jsonl/.json/.csv/.parquet.
     # boto3 credentials resolve from the environment (IAM role, AWS_ACCESS_KEY_ID, etc.).
-    # Expected JSONL schema: {"image_url": "...", "question": "...", "response": "..."}
-    # (the same schema as recipes/training/sft_vlm/example_data.csv).
+    # Expected schema: {"image_url": "...", "question": "...", "response": "..."}
+    # (the same schema as recipes/training/sft_vlm/example_data.csv). The image_url
+    # column may hold an HTTP(S) URL, a local path, or an s3:// URI (e.g. s3://your-bucket/images/cat.png).
     - name: "s3://your-bucket/datasets/vlm_train.csv"  # S3 URI to the dataset file (required)
       image_column: "image_url"
       question_column: "question"
       response_column: "response"
-      s3_region: null          # AWS region override (null = use AWS_DEFAULT_REGION)
-      s3_endpoint_url: null     # Custom S3-compatible endpoint (null = AWS S3)
+      s3_region: null          # AWS region override for the dataset file (null = use AWS_DEFAULT_REGION)
+      s3_endpoint_url: null     # Custom S3-compatible endpoint for the dataset file (null = AWS S3)
 
   image_cache_dir: "data/vlm_image_cache"
   image_fetch_timeout: 15
   image_fetch_retries: 3
   max_image_pixels: 262144         # ~0.25MP keeps the vision-token count bounded
+  # S3 overrides applied when an image value is an s3:// URI (independent of the
+  # per-dataset s3_region / s3_endpoint_url above, which govern the dataset file).
+  image_s3_region: null            # AWS region for s3:// images (null = use AWS_DEFAULT_REGION)
+  image_s3_endpoint_url: null      # Custom S3-compatible endpoint for s3:// images (null = AWS S3)
 
   # system_prompt is a .format() template; {question} and {response} are filled per row
   # from question_column / response_column. {response} is the target answer -- include it
