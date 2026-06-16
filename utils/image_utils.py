@@ -30,23 +30,28 @@ def _open_rgb(data_or_path: Any):
     return img.convert("RGB")
 
 
-def _read_local_image_bytes(path: str) -> bytes:
-    """Read a local image file's bytes, transparently decoding the escaped-bytes
-    text form.
+def _maybe_unescape_image_bytes(data: bytes) -> bytes:
+    """Decode the escaped-bytes text form of an image, if that is what ``data`` is.
 
     Some datasets store an image as the *escaped* representation of its bytes
-    (e.g. a file whose content is the literal text ``\\x89PNG\\r\\n...\\xaeB`\\x82``
-    rather than the raw PNG bytes). We detect that form by its leading ``\\x``
-    (bytes ``0x5C 0x78``) -- no real raster format begins with the ASCII
-    characters ``\\x`` -- and reverse the escape back to the original bytes.
-    Normal binary image files are returned unchanged.
+    (e.g. content that is the literal text ``\\x89PNG\\r\\n...\\xaeB`\\x82`` rather
+    than the raw PNG bytes). We detect that form by its leading ``\\x`` (bytes
+    ``0x5C 0x78``) -- no real raster format begins with the ASCII characters
+    ``\\x`` -- and reverse the escape back to the original bytes. This applies
+    regardless of where the bytes came from (local file, S3, or HTTP). Normal
+    binary image bytes are returned unchanged.
     """
-    with open(path, "rb") as f:
-        data = f.read()
     if data[:2] == b"\\x":
         # text like b"\\x89PNG..." -> original bytes b"\x89PNG..."
         return data.decode("unicode_escape").encode("latin-1")
     return data
+
+
+def _read_local_image_bytes(path: str) -> bytes:
+    """Read a local image file's bytes, transparently decoding the escaped-bytes
+    text form (see :func:`_maybe_unescape_image_bytes`)."""
+    with open(path, "rb") as f:
+        return _maybe_unescape_image_bytes(f.read())
 
 
 def _fetch_url(url: str, timeout: int, retries: int) -> bytes:
@@ -131,21 +136,25 @@ def fetch_image(
                     return download_s3_bytes(src, region=s3_region, endpoint_url=s3_endpoint_url)
                 return _fetch_url(src, timeout, retries)
 
-            # Serve from cache when available.
+            # Serve from cache when available. The cache stores the fetched
+            # content verbatim; _maybe_unescape_image_bytes handles the
+            # escaped-bytes text form on read (so e.g. an s3:// .bin holding
+            # escaped text decodes just like a local one).
             if cache_dir:
                 os.makedirs(cache_dir, exist_ok=True)
                 path = _cache_path(cache_dir, src)
                 if os.path.exists(path):
                     try:
-                        return _open_rgb(path)
+                        with open(path, "rb") as f:
+                            return _open_rgb(_maybe_unescape_image_bytes(f.read()))
                     except Exception:
                         # Corrupt cache entry; re-download below.
                         pass
                 content = _download()
                 with open(path, "wb") as f:
                     f.write(content)
-                return _open_rgb(content)
-            return _open_rgb(_download())
+                return _open_rgb(_maybe_unescape_image_bytes(content))
+            return _open_rgb(_maybe_unescape_image_bytes(_download()))
 
         # Treat as a local filesystem path. Reads through _read_local_image_bytes
         # so files holding the escaped-bytes text form decode transparently.
