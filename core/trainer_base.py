@@ -179,6 +179,12 @@ class BaseTrainer(ABC):
         self.local_rank = int(os.environ.get("LOCAL_RANK", -1))
         self.is_main_process = self.local_rank == -1 or self.local_rank == 0
 
+        # Strong reference to the ZeRO-3 HfDeepSpeedConfig (set lazily before model
+        # load). Transformers keeps only a weakref, so this must outlive
+        # from_pretrained to keep parameter partitioning active. See
+        # _maybe_enable_deepspeed_zero3_init.
+        self._hf_deepspeed_config = None
+
         # Download model from S3 if base_model_name is an s3:// URI. This must
         # happen before setup_model() so all trainers transparently get a local
         # path. Rank 0 (per-node) downloads; other ranks wait on a sentinel file.
@@ -494,6 +500,76 @@ class BaseTrainer(ABC):
         
         return tokenizer
 
+    @staticmethod
+    def _deepspeed_zero_stage(ds_config: Any) -> Optional[int]:
+        """Return the ZeRO optimization stage of a DeepSpeed config, or None.
+
+        Accepts the recipe's ``deepspeed_config`` value, which may be a path to a
+        JSON file or an already-parsed dict. Returns the integer stage
+        (``zero_optimization.stage``) when present and parseable, otherwise None
+        (no config, unreadable file, or no ``zero_optimization`` block).
+        """
+        if not ds_config:
+            return None
+        cfg = ds_config
+        if isinstance(cfg, str):
+            try:
+                import json
+                with open(cfg) as f:
+                    cfg = json.load(f)
+            except (OSError, ValueError):
+                return None
+        if not isinstance(cfg, dict):
+            return None
+        stage = cfg.get("zero_optimization", {}).get("stage")
+        return stage if isinstance(stage, int) else None
+
+    def _maybe_enable_deepspeed_zero3_init(self) -> None:
+        """Activate HF/DeepSpeed ZeRO-3 partitioned loading before from_pretrained.
+
+        Transformers only shards parameters at load time (via deepspeed.zero.Init,
+        so each rank materializes just its 1/world_size slice) when
+        ``is_deepspeed_zero3_enabled()`` is True *inside* ``from_pretrained``. That
+        flag is driven by a live ``HfDeepSpeedConfig`` weak-referenced global, which
+        is normally created only when ``TrainingArguments(deepspeed=...)`` is built
+        -- and our trainers build that *after* the model is loaded. Without this,
+        every rank loads the full checkpoint into host RAM (e.g. ~230 GB/rank for a
+        30B model), which OOMs the node regardless of GPU count.
+
+        We register the config here (and retain a strong reference on ``self`` so
+        the weakref stays alive through from_pretrained) only for ZeRO-3; ZeRO-1/2,
+        no DeepSpeed, and quantized/QLoRA runs (where deepspeed_config is unset) are
+        left untouched. The HF Trainer later creates its own HfDeepSpeedConfig,
+        harmlessly superseding this one once the model is already loaded.
+        """
+        if getattr(self, "_hf_deepspeed_config", None) is not None:
+            return
+        ds_config = self.config.training.deepspeed_config
+        if self._deepspeed_zero_stage(ds_config) != 3:
+            return
+        # Quantized (QLoRA/8-bit) bases load to GPU via bitsandbytes and don't
+        # combine cleanly with ZeRO-3 zero.Init; those runs use plain DDP. Leave
+        # them on the existing path.
+        if getattr(self.config.model, "load_in_4bit", False) or getattr(
+            self.config.model, "load_in_8bit", False
+        ):
+            return
+        try:
+            from transformers.integrations import HfDeepSpeedConfig
+        except ImportError:
+            self.logger.warning(
+                "deepspeed_config requests ZeRO-3 but HfDeepSpeedConfig is "
+                "unavailable; falling back to full-model load on every rank."
+            )
+            return
+        # Retain on self: transformers holds only a weakref to this object, and it
+        # is what makes from_pretrained() partition parameters per rank.
+        self._hf_deepspeed_config = HfDeepSpeedConfig(ds_config)
+        self.logger.info(
+            "Registered ZeRO-3 HfDeepSpeedConfig before model load; "
+            "parameters will be partitioned across ranks at from_pretrained time."
+        )
+
     def load_base_model_for_training(self, model_kwargs: Dict[str, Any]):
         """Load the base model, transparently handling PEFT/LoRA checkpoints.
 
@@ -506,6 +582,10 @@ class BaseTrainer(ABC):
         behaves identically to AutoModelForCausalLM.from_pretrained.
         """
         from peft import PeftConfig
+
+        # ZeRO-3 must be registered before from_pretrained so the model loads
+        # sharded per rank instead of fully on every rank.
+        self._maybe_enable_deepspeed_zero3_init()
 
         model_path = self.config.model.base_model_name
         self._peft_adapter_path = None
