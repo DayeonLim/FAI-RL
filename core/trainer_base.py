@@ -564,11 +564,44 @@ class BaseTrainer(ABC):
             return
         # Retain on self: transformers holds only a weakref to this object, and it
         # is what makes from_pretrained() partition parameters per rank.
-        self._hf_deepspeed_config = HfDeepSpeedConfig(ds_config)
+        self._hf_deepspeed_config = HfDeepSpeedConfig(self._resolve_ds_auto_batch(ds_config))
         self.logger.info(
             "Registered ZeRO-3 HfDeepSpeedConfig before model load; "
             "parameters will be partitioned across ranks at from_pretrained time."
         )
+
+    def _resolve_ds_auto_batch(self, ds_config: Any) -> Dict[str, Any]:
+        """Return the DeepSpeed config as a dict with 'auto' batch fields resolved.
+
+        ``deepspeed.zero.Init`` (invoked inside ``from_pretrained`` once ZeRO-3 is
+        active) builds a full ``DeepSpeedConfig`` and asserts ``train_batch_size >
+        0``. The shipped config leaves the batch fields as the string ``"auto"`` for
+        HF's Trainer to fill in later -- but that resolution happens when
+        ``TrainingArguments`` is built, which is *after* the model loads. So at
+        load time DeepSpeed compares the literal ``"auto"`` against ``0`` and raises
+        ``TypeError: '>' not supported between instances of 'str' and 'int'``.
+
+        We substitute concrete values from the recipe and ``WORLD_SIZE`` here, only
+        for the early registration. The HF Trainer later builds its own config from
+        the original ``deepspeed_config`` path and resolves ``"auto"`` as usual, so
+        this patched copy doesn't affect anything downstream.
+        """
+        import json
+        import copy
+
+        cfg = ds_config
+        if isinstance(cfg, str):
+            with open(cfg) as f:
+                cfg = json.load(f)
+        cfg = copy.deepcopy(cfg)
+
+        world_size = int(os.environ.get("WORLD_SIZE", 1) or 1)
+        micro = self.config.training.per_device_train_batch_size
+        accum = self.config.training.gradient_accumulation_steps
+        cfg["train_micro_batch_size_per_gpu"] = micro
+        cfg["gradient_accumulation_steps"] = accum
+        cfg["train_batch_size"] = micro * accum * world_size
+        return cfg
 
     def load_base_model_for_training(self, model_kwargs: Dict[str, Any]):
         """Load the base model, transparently handling PEFT/LoRA checkpoints.
