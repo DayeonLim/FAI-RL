@@ -44,7 +44,7 @@ data:
 # Training Configuration
 # Controls the training process and optimization settings
 training:
-  algorithm: "gspo"                                     # Training algorithm: sft, dpo, ppo, grpo, gspo
+  algorithm: "gspo"                                     # Training algorithm: sft, dpo, grpo, gspo
   output_dir: "models/llama3-3B-inst-gspo-s3-lora-v1"  # Directory to save trained model and checkpoints
 
   # Core training hyperparameters

@@ -1,6 +1,6 @@
 # FAI-RL Training
 
-Training implementations supporting CPT (Continuous Pre-Training), SFT (Supervised Fine-Tuning), DPO (Direct Preference Optimization), PPO (Proximal Policy Optimization), GRPO (Group Relative Policy Optimization), and GSPO (Group Sequence Policy Optimization) methods.
+Training implementations supporting CPT (Continuous Pre-Training), SFT (Supervised Fine-Tuning), DPO (Direct Preference Optimization), GRPO (Group Relative Policy Optimization), and GSPO (Group Sequence Policy Optimization) methods.
 
 ## 🚀 Quick Start
 
@@ -49,7 +49,6 @@ HuggingFace Hub datasets:
 - **CPT (Continuous Pre-Training)**: `recipes/training/cpt/qwen3_4B_qlora.yaml`
 - **SFT (Supervised Fine-Tuning)**: `recipes/training/sft/llama3_3B_lora.yaml`
 - **DPO (Direct Preference Optimization)**: `recipes/training/dpo/llama3_3B_lora.yaml`
-- **PPO (Proximal Policy Optimization)**: `recipes/training/ppo/llama3_3B_lora.yaml`
 - **GRPO (Group Relative Policy Optimization)**: `recipes/training/grpo/llama3_3B_lora.yaml`
 - **GSPO (Group Sequence Policy Optimization)**: `recipes/training/gspo/llama3_3B_lora.yaml`
 
@@ -79,14 +78,14 @@ Open any config file to see detailed inline documentation for all available para
 
 **Configuration Checklist:**
 Replace the following values for your specific use case:
-- `data.datasets.name` → your HuggingFace dataset(s) (e.g., "Anthropic/hh-rlhf" for DPO/PPO, "openai/gsm8k" for GRPO/GSPO, "nvidia/Aegis-AI-Content-Safety-Dataset-2.0" for SFT), **a local file path** (e.g., `data/train.jsonl`), or **an S3 URI** (e.g., `s3://bucket/datasets/train.jsonl`) — see [Local File Datasets](#local-file-datasets) and [S3 Datasets](#s3-datasets) below
+- `data.datasets.name` → your HuggingFace dataset(s) (e.g., "Anthropic/hh-rlhf" for DPO, "openai/gsm8k" for GRPO/GSPO, "nvidia/Aegis-AI-Content-Safety-Dataset-2.0" for SFT), **a local file path** (e.g., `data/train.jsonl`), or **an S3 URI** (e.g., `s3://bucket/datasets/train.jsonl`) — see [Local File Datasets](#local-file-datasets) and [S3 Datasets](#s3-datasets) below
 - `data.datasets.text_column` → column containing raw text (CPT only; default: `"text"`)
 - `data.datasets.prompt_column` / `answer_column` / `chosen_column` / `rejected_column` → adjust based on your dataset and algorithm
   - **CPT**: Use `text_column` (raw text, no chat template)
   - **SFT**: Use `prompt_column` and `answer_column`
-  - **DPO/PPO**: Use `prompt_column`, `chosen_column`, and `rejected_column`
+  - **DPO**: Use `prompt_column`, `chosen_column`, and `rejected_column`
   - **GRPO/GSPO**: Use `prompt_column` and `answer_column`
-- `training.algorithm` → choose from: `cpt`, `sft`, `dpo`, `ppo`, `grpo`, `gspo`
+- `training.algorithm` → choose from: `cpt`, `sft`, `dpo`, `grpo`, `gspo`
 - `training.output_dir` → your desired model output directory
 - `wandb.*` → your Weights & Biases configuration (or set `enabled: false` to disable)
 
@@ -94,7 +93,6 @@ Replace the following values for your specific use case:
 - **CPT**: Domain adaptation via next-token prediction on raw text; requires a `text_column` in dataset; no system prompt or chat template applied
 - **SFT**: Best for initial instruction tuning; requires `prompt_column` and `answer_column` in dataset
 - **DPO**: Preference-based method; requires `prompt_column`, `chosen_column`, and `rejected_column`
-- **PPO**: Requires `value_model_name` in model config and additional PPO hyperparameters in training config
 - **GRPO/GSPO**: Math/reasoning task optimization; requires `prompt_column` and `answer_column`
 
 **Memory Optimization Tips:**

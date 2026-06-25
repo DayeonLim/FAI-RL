@@ -22,8 +22,6 @@ class ModelConfig:
     load_in_8bit: bool = False
     load_in_4bit: bool = False
     use_flash_attention: bool = False
-    value_model_name: Optional[str] = None  # For PPO: value and reward models
-    
     # Quantization configuration for QLoRA
     bnb_4bit_compute_dtype: str = "bfloat16"
     bnb_4bit_quant_type: str = "nf4"
@@ -192,13 +190,6 @@ class TrainingConfig:
     epsilon_high: float = 4e-4                  # from paper section 5.1
     steps_per_generation: int = 4               # each batch of rollout data is partitioned into four minibatches for gradient updates
     importance_sampling_level: str = "sequence" # GSPO uses sequence-level importance sampling
-    
-    # PPO specific parameters (used by PPO trainer)
-    gamma: float = 1.0                          # Discount factor
-    lam: float = 0.95                           # GAE lambda
-    cliprange: float = 0.2                      # PPO clipping range
-    cliprange_value: float = 0.2                # Value function clipping range
-    vf_coef: float = 0.1                        # Value function coefficient
     
     # Logging and inference
     logging_steps: int = 10

@@ -44,7 +44,7 @@ data:
 # Training Configuration
 # Controls the training process and optimization settings
 training:
-  algorithm: "cpt"                                          # Training algorithm: cpt, sft, dpo, ppo, grpo, gspo
+  algorithm: "cpt"                                          # Training algorithm: cpt, sft, dpo, grpo, gspo
   output_dir: "models/qwen3-30B-A3B-cpt-lora-v1"            # Directory to save trained model and checkpoints
 
   # Core training hyperparameters

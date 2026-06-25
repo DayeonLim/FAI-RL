@@ -34,7 +34,7 @@ data:
 # Training Configuration
 # Controls the training process and optimization settings
 training:
-  algorithm: "dpo"                                      # Training algorithm: sft, dpo, ppo, grpo, gspo
+  algorithm: "dpo"                                      # Training algorithm: sft, dpo, grpo, gspo
   output_dir: "models/llama3-3B-inst-dpo-full-v1"       # Directory to save trained model and checkpoints
   deepspeed_config: "configs/deepspeed/zero1_config.json"  # ZeRO-1 (sharded optimizer states) for full fine-tuning
   
