@@ -138,11 +138,28 @@ class S3UploadCallback(TrainerCallback):
         # the binary isn't installed, instead of mid-training on the first save.
         _resolve_uploader(self.uploader)
         self._upload_threads: list[threading.Thread] = []
+        # Exceptions raised inside upload threads are captured here, since
+        # Thread.join() does NOT propagate them and would otherwise let a
+        # failed upload pass as success.
+        self._upload_errors: list[BaseException] = []
+        self._errors_lock = threading.Lock()
+
+    def _run_upload(self, **kwargs):
+        """Thread target that runs the upload and records any failure."""
+        try:
+            upload_directory_to_s3(**kwargs)
+        except BaseException as exc:  # noqa: BLE001 - re-raised on join
+            logger.error(
+                "S3 upload to s3://%s/%s failed: %s",
+                kwargs.get("bucket"), kwargs.get("s3_prefix"), exc,
+            )
+            with self._errors_lock:
+                self._upload_errors.append(exc)
 
     def _schedule_upload(self, local_dir: str, s3_prefix: str, delete_local: bool = False):
         """Start a background upload and track the thread."""
         t = threading.Thread(
-            target=upload_directory_to_s3,
+            target=self._run_upload,
             kwargs=dict(
                 local_dir=local_dir,
                 bucket=self.bucket,
@@ -158,10 +175,32 @@ class S3UploadCallback(TrainerCallback):
         self._upload_threads.append(t)
 
     def _wait_for_uploads(self, timeout_per_thread: float = 1800):
-        """Block until all background uploads finish."""
+        """Block until all background uploads finish.
+
+        Raises RuntimeError if any upload failed or did not complete within the
+        timeout, so a failed model/checkpoint upload is reported as a failure
+        instead of silently passing.
+        """
+        timed_out = []
         for t in self._upload_threads:
             t.join(timeout=timeout_per_thread)
+            if t.is_alive():
+                timed_out.append(t)
         self._upload_threads.clear()
+
+        with self._errors_lock:
+            errors = list(self._upload_errors)
+            self._upload_errors.clear()
+
+        if timed_out:
+            raise RuntimeError(
+                f"{len(timed_out)} S3 upload(s) did not finish within "
+                f"{timeout_per_thread}s; treating as failed."
+            )
+        if errors:
+            raise RuntimeError(
+                f"{len(errors)} S3 upload(s) failed; first error: {errors[0]}"
+            ) from errors[0]
 
     # -- Trainer hooks --
 
