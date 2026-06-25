@@ -49,14 +49,6 @@ Fine-tunes a vision-language model on `(image, prompt) -> response` data. Images
 | `dpo/llama3_3B_local_file.yaml` | Local file | `.jsonl/.json/.csv/.parquet` |
 | `dpo/llama3_3B_s3_file.yaml` | S3 | `s3://bucket/key.jsonl` |
 
-### PPO (Proximal Policy Optimization)
-
-| Recipe | Dataset source | Notes |
-|--------|---------------|-------|
-| `ppo/llama3_3B_lora.yaml` | HuggingFace Hub | LoRA, Llama-3.2-3B |
-| `ppo/llama3_3B_qlora.yaml` | HuggingFace Hub | QLoRA (4-bit), Llama-3.2-3B |
-| `ppo/llama3_3B_full.yaml` | HuggingFace Hub | Full fine-tune, Llama-3.2-3B |
-
 ### GRPO (Group Relative Policy Optimization)
 
 | Recipe | Dataset source | Notes |
@@ -104,7 +96,6 @@ All algorithms support three dataset sources. The source is selected by the valu
 | CPT | `text` |
 | SFT | `prompt`, `response` |
 | DPO | `prompt`, `chosen`, `rejected` |
-| PPO | `prompt`, `chosen`, `rejected` |
 | GRPO | `prompt`, `answer` |
 | GSPO | `prompt`, `answer` |
 | SFT_VLM | `image_url`, `question`, `response` (see below) |
