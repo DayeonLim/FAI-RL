@@ -574,17 +574,26 @@ class BaseTrainer(ABC):
         """Return the DeepSpeed config as a dict with 'auto' batch fields resolved.
 
         ``deepspeed.zero.Init`` (invoked inside ``from_pretrained`` once ZeRO-3 is
-        active) builds a full ``DeepSpeedConfig`` and asserts ``train_batch_size >
-        0``. The shipped config leaves the batch fields as the string ``"auto"`` for
-        HF's Trainer to fill in later -- but that resolution happens when
-        ``TrainingArguments`` is built, which is *after* the model loads. So at
-        load time DeepSpeed compares the literal ``"auto"`` against ``0`` and raises
+        active) builds a full ``DeepSpeedConfig`` and asserts both ``train_batch_size
+        > 0`` and ``train_batch_size == micro_batch * grad_acc * world_size``. The
+        shipped config leaves the batch fields as the string ``"auto"`` for HF's
+        Trainer to fill in later -- but that resolution happens when
+        ``TrainingArguments`` is built, which is *after* the model loads. So at load
+        time DeepSpeed compares the literal ``"auto"`` against ``0`` and raises
         ``TypeError: '>' not supported between instances of 'str' and 'int'``.
 
-        We substitute concrete values from the recipe and ``WORLD_SIZE`` here, only
-        for the early registration. The HF Trainer later builds its own config from
-        the original ``deepspeed_config`` path and resolves ``"auto"`` as usual, so
-        this patched copy doesn't affect anything downstream.
+        We substitute concrete micro-batch / grad-accum values from the recipe here,
+        only for the early registration, and deliberately leave ``train_batch_size``
+        unset (``None``) so DeepSpeed *derives* it as ``micro * grad_acc *
+        world_size`` using whatever world size it sees at that moment. We must not
+        compute ``train_batch_size`` ourselves: at ``zero.Init`` time DeepSpeed's
+        comm backend isn't initialized, so it reads ``world_size == 1`` regardless of
+        the real ``WORLD_SIZE`` env -- pinning the product to a multi-GPU value here
+        trips the equality assertion (e.g. ``16 != 1 * 8 * 1``). Letting DeepSpeed
+        fill it in keeps the config internally consistent in every context. The HF
+        Trainer later builds its own config from the original ``deepspeed_config``
+        path and resolves ``"auto"`` as usual, so this copy doesn't affect anything
+        downstream.
         """
         import json
         import copy
@@ -595,12 +604,12 @@ class BaseTrainer(ABC):
                 cfg = json.load(f)
         cfg = copy.deepcopy(cfg)
 
-        world_size = int(os.environ.get("WORLD_SIZE", 1) or 1)
         micro = self.config.training.per_device_train_batch_size
         accum = self.config.training.gradient_accumulation_steps
         cfg["train_micro_batch_size_per_gpu"] = micro
         cfg["gradient_accumulation_steps"] = accum
-        cfg["train_batch_size"] = micro * accum * world_size
+        # Let DeepSpeed derive train_batch_size from its own world size; see docstring.
+        cfg["train_batch_size"] = None
         return cfg
 
     def load_base_model_for_training(self, model_kwargs: Dict[str, Any]):
